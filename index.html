@@ -1,4 +1,3 @@
-```html
 <!DOCTYPE html>
 <html lang="id">
 <head>
@@ -316,4 +315,515 @@
             <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
                 <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
                     <div>
-                        <h2 class="text-lg f
+                        <h2 class="text-lg font-bold text-slate-800">Riwayat Absensi Lengkap</h2>
+                        <p class="text-xs text-slate-500">Daftar riwayat absensi guru yang tersimpan di sistem.</p>
+                    </div>
+                    <div class="flex gap-2">
+                        <button onclick="clearHistory()" class="bg-rose-50 hover:bg-rose-100 text-rose-600 px-4 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-2">
+                            <i class="fa-solid fa-trash-can"></i> Reset Semua Data
+                        </button>
+                    </div>
+                </div>
+
+                <div id="history-container" class="space-y-4">
+                    <!-- Dynamic history items -->
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <footer class="bg-white border-t border-slate-200 mt-auto py-4 text-center text-xs text-slate-500">
+        <p>&copy; 2026 SD Negeri 02 Wonosari. Aplikasi Pemantauan Tugas Gerbang Sekolah.</p>
+    </footer>
+
+    <!-- Toast Notification Modal/Popup -->
+    <div id="toast" class="fixed bottom-5 right-5 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-xl transform translate-y-20 opacity-0 transition-all duration-300 z-50 flex items-center gap-3 text-sm">
+        <i id="toast-icon" class="fa-solid fa-circle-check text-emerald-400"></i>
+        <span id="toast-msg">Pesan berhasil disimpan</span>
+    </div>
+
+    <script>
+        let currentLoggedUser = localStorage.getItem('logged_teacher_user') || null;
+
+        const scheduleData = {
+            1: ['Pak Alip', 'Bu Wasis'],      // Senin
+            2: ['Bu Umi', 'Pak Kris'],       // Selasa
+            3: ['Bu Lis', 'Pak Digdo'],     // Rabu
+            4: ['Bu Har', 'Pak Alip'],       // Kamis
+            5: ['Pak Kris', 'Bu Wasis'],     // Jumat
+            6: ['Bu Umi', 'Bu Lis']          // Sabtu
+        };
+
+        const dayNames = {
+            1: 'Senin',
+            2: 'Selasa',
+            3: 'Rabu',
+            4: 'Kamis',
+            5: 'Jumat',
+            6: 'Sabtu',
+            0: 'Minggu'
+        };
+
+        window.onload = function() {
+            // Set default date to today
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('attendance-date').value = today;
+
+            checkAuthStatus();
+            loadDailyAttendance();
+        };
+
+        function checkAuthStatus() {
+            const loginModal = document.getElementById('login-modal');
+            const userBadge = document.getElementById('user-badge');
+            const loggedUserName = document.getElementById('logged-user-name');
+
+            if (currentLoggedUser) {
+                loginModal.classList.add('hidden');
+                userBadge.classList.remove('hidden');
+                loggedUserName.innerText = currentLoggedUser;
+            } else {
+                loginModal.classList.remove('hidden');
+                userBadge.classList.add('hidden');
+            }
+        }
+
+        function handleLogin(e) {
+            e.preventDefault();
+            const teacherSelect = document.getElementById('login-teacher-select').value;
+            const pin = document.getElementById('login-pin').value;
+
+            if (!teacherSelect) {
+                showToast('Pilih nama Anda terlebih dahulu', 'error');
+                return;
+            }
+
+            if (pin !== '1234') {
+                showToast('PIN keamanan salah! (Default: 1234)', 'error');
+                return;
+            }
+
+            currentLoggedUser = teacherSelect;
+            localStorage.setItem('logged_teacher_user', currentLoggedUser);
+            checkAuthStatus();
+            loadDailyAttendance();
+            showToast(`Selamat datang, ${currentLoggedUser}!`);
+        }
+
+        function handleLogout() {
+            localStorage.removeItem('logged_teacher_user');
+            currentLoggedUser = null;
+            checkAuthStatus();
+            showToast('Anda telah keluar.');
+        }
+
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('border-emerald-600', 'text-emerald-600');
+                btn.classList.add('border-transparent', 'text-slate-500');
+            });
+
+            document.getElementById(`tab-${tabName}`).classList.remove('hidden');
+            const activeBtn = document.getElementById(`tab-btn-${tabName}`);
+            activeBtn.classList.add('border-emerald-600', 'text-emerald-600');
+            activeBtn.classList.remove('border-transparent', 'text-slate-500');
+
+            if (tabName === 'history') loadHistory();
+            if (tabName === 'rekap') loadRekapTab();
+            if (tabName === 'daily') loadDailyAttendance();
+        }
+
+        function updateDateDisplay(dateObj) {
+            const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+            document.getElementById('current-date-display').innerText = dateObj.toLocaleDateString('id-ID', options);
+        }
+
+        function getStorageKey(dateStr, teacherName) {
+            return `attendance_${dateStr}_${teacherName.replace(/\s+/g, '_')}`;
+        }
+
+        function loadDailyAttendance() {
+            const container = document.getElementById('daily-teachers-container');
+            const dateInput = document.getElementById('attendance-date').value;
+            if (!dateInput) return;
+
+            const selectedDate = new Date(dateInput);
+            updateDateDisplay(selectedDate);
+
+            const dayOfWeek = selectedDate.getDay(); // 0 = Minggu, 1 = Senin, ...
+            const dayName = dayNames[dayOfWeek];
+
+            container.innerHTML = '';
+
+            if (dayOfWeek === 0) {
+                container.innerHTML = `
+                    <div class="col-span-full bg-slate-100 p-8 rounded-2xl text-center text-slate-500 border border-slate-200">
+                        <i class="fa-solid fa-mug-hot text-4xl mb-3 text-slate-400"></i>
+                        <h3 class="font-bold text-base">Hari Minggu / Libur Sekolah</h3>
+                        <p class="text-xs mt-1">Tidak ada jadwal piket menyambut siswa pada hari libur.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const assignedTeachers = scheduleData[dayOfWeek] || [];
+
+            if (assignedTeachers.length === 0) {
+                container.innerHTML = `<div class="col-span-full text-center py-8 text-slate-400">Tidak ada jadwal tugas untuk hari ini.</div>`;
+                return;
+            }
+
+            assignedTeachers.forEach(teacher => {
+                const storageKey = getStorageKey(dateInput, teacher);
+                const savedData = JSON.parse(localStorage.getItem(storageKey)) || {
+                    status: 'Hadir',
+                    time: '06:30',
+                    notes: '',
+                    photo: '',
+                    date: dateInput,
+                    teacher: teacher,
+                    day: dayName
+                };
+
+                const isLoggedTeacher = currentLoggedUser === teacher || currentLoggedUser === 'Admin / Kepala Sekolah';
+
+                const card = document.createElement('div');
+                card.className = 'bg-white rounded-2xl p-5 border border-slate-200 shadow-sm space-y-4 hover:shadow-md transition-all';
+                card.innerHTML = `
+                    <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-sm">
+                                ${teacher.charAt(0)}
+                            </div>
+                            <div>
+                                <h3 class="font-bold text-slate-800 text-base">${teacher}</h3>
+                                <p class="text-xs text-slate-500"><i class="fa-solid fa-user-clock text-emerald-600 mr-1"></i> Tugas: ${dayName}</p>
+                            </div>
+                        </div>
+                        <span class="text-xs px-2.5 py-1 rounded-full font-semibold ${
+                            savedData.status === 'Hadir' ? 'bg-emerald-100 text-emerald-800' :
+                            savedData.status === 'Terlambat' ? 'bg-amber-100 text-amber-800' :
+                            savedData.status === 'Izin' ? 'bg-blue-100 text-blue-800' : 'bg-rose-100 text-rose-800'
+                        }">
+                            ${savedData.status}
+                        </span>
+                    </div>
+
+                    ${!isLoggedTeacher ? `
+                        <div class="bg-amber-50 text-amber-800 text-xs p-2.5 rounded-xl flex items-center gap-2 border border-amber-200">
+                            <i class="fa-solid fa-lock text-amber-600"></i>
+                            <span>Login sebagai <b>${teacher}</b> atau Admin untuk mengubah absensi ini.</span>
+                        </div>
+                    ` : ''}
+
+                    <div class="space-y-3 ${!isLoggedTeacher ? 'opacity-60 pointer-events-none' : ''}">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1.5">Status Kehadiran:</label>
+                            <div class="grid grid-cols-4 gap-2">
+                                <button type="button" onclick="saveStatus('${dateInput}', '${teacher}', 'Hadir', this)" class="px-2 py-2 rounded-xl text-xs font-semibold border ${savedData.status === 'Hadir' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'}">Hadir</button>
+                                <button type="button" onclick="saveStatus('${dateInput}', '${teacher}', 'Terlambat', this)" class="px-2 py-2 rounded-xl text-xs font-semibold border ${savedData.status === 'Terlambat' ? 'bg-amber-500 text-white border-amber-500' : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'}">Telat</button>
+                                <button type="button" onclick="saveStatus('${dateInput}', '${teacher}', 'Izin', this)" class="px-2 py-2 rounded-xl text-xs font-semibold border ${savedData.status === 'Izin' ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'}">Izin</button>
+                                <button type="button" onclick="saveStatus('${dateInput}', '${teacher}', 'Alpha', this)" class="px-2 py-2 rounded-xl text-xs font-semibold border ${savedData.status === 'Alpha' ? 'bg-rose-600 text-white border-rose-600' : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'}">Alpha</button>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">Jam Tiba:</label>
+                                <input type="time" value="${savedData.time}" onchange="saveTime('${dateInput}', '${teacher}', this.value)" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">Catatan Tambahan:</label>
+                                <input type="text" placeholder="Misal: Menyambut siswa 5S" value="${savedData.notes}" onchange="saveNotes('${dateInput}', '${teacher}', this.value)" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                            </div>
+                        </div>
+
+                        <!-- Bukti Foto Selfie Component -->
+                        <div class="pt-2 border-t border-slate-100">
+                            <label class="block text-xs font-semibold text-slate-600 mb-1.5"><i class="fa-solid fa-camera text-emerald-600 mr-1"></i> Bukti Selfie Kehadiran:</label>
+                            
+                            ${savedData.photo ? `
+                                <div class="relative group rounded-xl overflow-hidden border border-slate-200">
+                                    <img src="${savedData.photo}" class="photo-preview cursor-pointer" onclick="viewPhoto('${savedData.photo}', '${teacher}')" title="Klik untuk memperbesar">
+                                    <div class="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center gap-2">
+                                        <button type="button" onclick="viewPhoto('${savedData.photo}', '${teacher}')" class="bg-white/90 text-slate-800 text-xs px-2.5 py-1.5 rounded-lg font-semibold shadow">
+                                            <i class="fa-solid fa-expand"></i> Lihat
+                                        </button>
+                                        <button type="button" onclick="removePhoto('${dateInput}', '${teacher}')" class="bg-rose-600 text-white text-xs px-2.5 py-1.5 rounded-lg font-semibold shadow">
+                                            <i class="fa-solid fa-trash"></i> Hapus
+                                        </button>
+                                    </div>
+                                </div>
+                            ` : `
+                                <div class="border-2 border-dashed border-slate-200 rounded-xl p-3 text-center bg-slate-50 hover:bg-slate-100/80 transition-all">
+                                    <input type="file" id="photo-input-${teacher.replace(/\s+/g, '')}" accept="image/*" capture="user" class="hidden" onchange="uploadPhoto('${dateInput}', '${teacher}', this)">
+                                    <label for="photo-input-${teacher.replace(/\s+/g, '')}" class="cursor-pointer flex flex-col items-center justify-center gap-1 text-slate-500">
+                                        <i class="fa-solid fa-camera-retro text-lg text-emerald-600"></i>
+                                        <span class="text-xs font-medium">Ambil / Unggah Foto Selfie</span>
+                                    </label>
+                                </div>
+                            `}
+                        </div>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        function updateRecordData(dateVal, teacher, updaterFn) {
+            const storageKey = getStorageKey(dateVal, teacher);
+            let current = JSON.parse(localStorage.getItem(storageKey)) || { status: 'Hadir', time: '06:30', notes: '', photo: '', date: dateVal, teacher: teacher, day: dayNames[new Date(dateVal).getDay()] };
+            updaterFn(current);
+            localStorage.setItem(storageKey, JSON.stringify(current));
+            showToast(`Absensi ${teacher} diperbarui`);
+        }
+
+        function saveStatus(dateVal, teacher, status, btnElement) {
+            updateRecordData(dateVal, teacher, record => { record.status = status; });
+            loadDailyAttendance();
+        }
+
+        function saveTime(dateVal, teacher, timeVal) {
+            updateRecordData(dateVal, teacher, record => { record.time = timeVal; });
+        }
+
+        function saveNotes(dateVal, teacher, notesVal) {
+            updateRecordData(dateVal, teacher, record => { record.notes = notesVal; });
+        }
+
+        function uploadPhoto(dateVal, teacher, inputElement) {
+            const file = inputElement.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const img = new Image();
+                img.onload = function() {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    const maxWidth = 500;
+                    const scale = maxWidth / img.width;
+                    canvas.width = maxWidth;
+                    canvas.height = img.height * scale;
+
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.7);
+
+                    updateRecordData(dateVal, teacher, record => { record.photo = compressedDataUrl; });
+                    loadDailyAttendance();
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function removePhoto(dateVal, teacher) {
+            updateRecordData(dateVal, teacher, record => { record.photo = ''; });
+            loadDailyAttendance();
+        }
+
+        function viewPhoto(photoSrc, teacherName) {
+            document.getElementById('photo-modal-img').src = photoSrc;
+            document.getElementById('photo-modal-title').innerText = `Bukti Selfie - ${teacherName}`;
+            document.getElementById('photo-modal').classList.remove('hidden');
+        }
+
+        function closePhotoModal() {
+            document.getElementById('photo-modal').classList.add('hidden');
+        }
+
+        function getAllRecords() {
+            let allRecords = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key.startsWith('attendance_')) {
+                    try {
+                        const data = JSON.parse(localStorage.getItem(key));
+                        if (data && data.date) {
+                            allRecords.push(data);
+                        }
+                    } catch (e) {}
+                }
+            }
+            allRecords.sort((a, b) => new Date(b.date) - new Date(a.date));
+            return allRecords;
+        }
+
+        function loadRekapTab() {
+            const records = getAllRecords();
+            const searchKeyword = document.getElementById('search-rekap').value.toLowerCase();
+            const filterStatus = document.getElementById('filter-status-rekap').value;
+
+            let countHadir = 0, countTelat = 0, countIzin = 0, countAlpha = 0;
+
+            records.forEach(r => {
+                if (r.status === 'Hadir') countHadir++;
+                if (r.status === 'Terlambat') countTelat++;
+                if (r.status === 'Izin') countIzin++;
+                if (r.status === 'Alpha') countAlpha++;
+            });
+
+            document.getElementById('stat-hadir').innerText = countHadir;
+            document.getElementById('stat-telat').innerText = countTelat;
+            document.getElementById('stat-izin').innerText = countIzin;
+            document.getElementById('stat-alpha').innerText = countAlpha;
+
+            const tableBody = document.getElementById('rekap-table-body');
+            tableBody.innerHTML = '';
+
+            const filteredRecords = records.filter(r => {
+                const matchName = r.teacher.toLowerCase().includes(searchKeyword);
+                const matchStatus = filterStatus === 'ALL' || r.status === filterStatus;
+                return matchName && matchStatus;
+            });
+
+            if (filteredRecords.length === 0) {
+                tableBody.innerHTML = `
+                    <tr>
+                        <td colspan="7" class="text-center py-6 text-slate-400">Tidak ada data kehadiran ditemukan.</td>
+                    </tr>
+                `;
+                return;
+            }
+
+            filteredRecords.forEach(r => {
+                let badgeColor = 'bg-emerald-100 text-emerald-800';
+                if (r.status === 'Terlambat') badgeColor = 'bg-amber-100 text-amber-800';
+                if (r.status === 'Izin') badgeColor = 'bg-blue-100 text-blue-800';
+                if (r.status === 'Alpha') badgeColor = 'bg-rose-100 text-rose-800';
+
+                const row = document.createElement('tr');
+                row.className = 'hover:bg-slate-50 border-b border-slate-100';
+                row.innerHTML = `
+                    <td class="p-3 font-mono text-[11px]">${r.date}</td>
+                    <td class="p-3 font-semibold">${r.day || '-'}</td>
+                    <td class="p-3 font-bold text-slate-800">${r.teacher}</td>
+                    <td class="p-3">${r.time || '-'}</td>
+                    <td class="p-3"><span class="px-2 py-0.5 rounded-full text-[11px] font-semibold ${badgeColor}">${r.status}</span></td>
+                    <td class="p-3 text-slate-500">${r.notes || '-'}</td>
+                    <td class="p-3 text-center">
+                        ${r.photo ? `
+                            <button onclick="viewPhoto('${r.photo}', '${r.teacher}')" class="text-emerald-600 hover:text-emerald-800 text-xs font-semibold underline">
+                                <i class="fa-solid fa-image"></i> Lihat
+                            </button>
+                        ` : '<span class="text-slate-300">-</span>'}
+                    </td>
+                `;
+                tableBody.appendChild(row);
+            });
+        }
+
+        function loadHistory() {
+            const container = document.getElementById('history-container');
+            container.innerHTML = '';
+
+            const allRecords = getAllRecords();
+
+            if (allRecords.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-10 text-slate-400 text-sm">
+                        <i class="fa-solid fa-folder-open text-3xl mb-2"></i>
+                        <p>Belum ada data riwayat absensi tersimpan.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            allRecords.forEach(rec => {
+                let badgeColor = 'bg-emerald-100 text-emerald-800';
+                if (rec.status === 'Terlambat') badgeColor = 'bg-amber-100 text-amber-800';
+                if (rec.status === 'Izin') badgeColor = 'bg-blue-100 text-blue-800';
+                if (rec.status === 'Alpha') badgeColor = 'bg-rose-100 text-rose-800';
+
+                const item = document.createElement('div');
+                item.className = 'flex flex-col md:flex-row items-start md:items-center justify-between p-4 rounded-xl border border-slate-100 bg-slate-50 gap-3';
+                item.innerHTML = `
+                    <div class="flex items-center gap-3">
+                        ${rec.photo ? `
+                            <img src="${rec.photo}" class="w-12 h-12 rounded-xl object-cover border border-slate-200 cursor-pointer shadow-sm" onclick="viewPhoto('${rec.photo}', '${rec.teacher}')" title="Klik untuk memperbesar">
+                        ` : `
+                            <div class="w-12 h-12 rounded-xl bg-white border border-slate-200 flex items-center justify-center font-bold text-slate-700 text-xs shrink-0">
+                                ${rec.teacher.charAt(0)}
+                            </div>
+                        `}
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <h4 class="font-bold text-slate-800 text-sm">${rec.teacher}</h4>
+                                <span class="text-xs px-2 py-0.5 rounded-full font-semibold ${badgeColor}">${rec.status}</span>
+                            </div>
+                            <p class="text-xs text-slate-500 mt-0.5">${rec.day || ''}, ${rec.date} • Tiba pukul ${rec.time || '-'}</p>
+                        </div>
+                    </div>
+                    <div class="text-xs text-slate-600 bg-white px-3 py-2 rounded-lg border border-slate-200 w-full md:w-auto flex items-center justify-between md:justify-end gap-3">
+                        <span>${rec.notes ? `<i class="fa-regular fa-comment-dots text-emerald-600 mr-1"></i> ${rec.notes}` : '<span class="text-slate-400 italic">Tanpa catatan</span>'}</span>
+                        ${rec.photo ? `<button onclick="viewPhoto('${rec.photo}', '${rec.teacher}')" class="text-emerald-600 hover:text-emerald-700 font-semibold text-xs flex items-center gap-1"><i class="fa-solid fa-image"></i> Lihat Selfie</button>` : ''}
+                    </div>
+                `;
+                container.appendChild(item);
+            });
+        }
+
+        function exportData() {
+            const allRecords = getAllRecords();
+
+            if (allRecords.length === 0) {
+                showToast('Tidak ada data untuk diekspor', 'error');
+                return;
+            }
+
+            let csv = 'Tanggal,Hari,Guru,Status,Jam Tiba,Catatan\n';
+            allRecords.forEach(r => {
+                csv += `"${r.date}","${r.day || ''}","${r.teacher}","${r.status}","${r.time || ''}","${r.notes || ''}"\n`;
+            });
+
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.setAttribute('href', url);
+            a.setAttribute('download', `Rekap_Kehadiran_Guru_SDN02Wonosari_${new Date().toISOString().slice(0,10)}.csv`);
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            showToast('Data berhasil diekspor ke CSV');
+        }
+
+        function clearHistory() {
+            const keysToRemove = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key.startsWith('attendance_')) {
+                    keysToRemove.push(key);
+                }
+            }
+            if (keysToRemove.length === 0) {
+                showToast('Tidak ada data riwayat untuk direset.', 'error');
+                return;
+            }
+            keysToRemove.forEach(k => localStorage.removeItem(k));
+            loadDailyAttendance();
+            loadHistory();
+            showToast('Data riwayat berhasil direset');
+        }
+
+        function showToast(msg, type='success') {
+            const toast = document.getElementById('toast');
+            const toastMsg = document.getElementById('toast-msg');
+            const toastIcon = document.getElementById('toast-icon');
+
+            toastMsg.innerText = msg;
+            if (type === 'error') {
+                toastIcon.className = 'fa-solid fa-circle-exclamation text-rose-400';
+            } else {
+                toastIcon.className = 'fa-solid fa-circle-check text-emerald-400';
+            }
+
+            toast.classList.remove('translate-y-20', 'opacity-0');
+            setTimeout(() => {
+                toast.classList.add('translate-y-20', 'opacity-0');
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
